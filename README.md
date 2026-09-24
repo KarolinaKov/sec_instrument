@@ -95,8 +95,8 @@ flowchart LR
     F -.->|"Download"| U
 ```
 ![proc_to_neumim](images/kalendar_velky.jpg)
-!(images/kalendar_maly.jpg)
-!(images/input_download_display.jpg)
+![jupi](images/kalendar_maly.jpg)
+![hura](images/input_download_display.jpg)
 
 ## Logy
 
