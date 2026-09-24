@@ -263,7 +263,6 @@
 
         document.addEventListener('DOMContentLoaded', function() {
             loadTests();
-            loadMonthlySchedule();
             document.getElementById('previousMonth').addEventListener('click', () => changeScheduleMonth(-1));
             document.getElementById('nextMonth').addEventListener('click', () => changeScheduleMonth(1));
         });
@@ -483,6 +482,7 @@
                     console.log('API RESPONSE', data);
                     const tests = data.results || data;
                     displayTests(tests);
+                    loadMonthlySchedule();
                 } else {
                     console.error('Error loading tests', response.status);
                 }

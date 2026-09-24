@@ -75,11 +75,17 @@ class TestViewSet(viewsets.ModelViewSet):
 
     def partial_update(self, request, *args, **kwargs):
         if 'cron' in request.data:
+            cron_expression = str(request.data['cron']).strip()
+            if len(cron_expression.split()) != 5:
+                return Response(
+                    {'cron': 'Use exactly five cron fields: minute hour day month weekday.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
             try:
-                croniter(str(request.data['cron']), timezone.now())
+                croniter(cron_expression, timezone.now())
             except (TypeError, ValueError):
                 return Response(
-                    {'cron': 'Enter a valid five-part cron expression.'},
+                    {'cron': 'Enter a valid five-field cron expression.'},
                     status=status.HTTP_400_BAD_REQUEST
                 )
 

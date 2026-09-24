@@ -232,8 +232,15 @@ def vulnerability_scan_task(self, test_id):
         from django.db import transaction
         with transaction.atomic():
             locked_test = Test.objects.select_for_update().get(id=test.id)
-            test_ip = TestIP.objects.create(ip_address=live_ips)
-            locked_test.ip_current = test_ip
+            current_ips = set(live_ips)
+            previous_ips = set(
+                locked_test.ip_current.ip_address
+                if locked_test.ip_current else []
+            )
+
+            if locked_test.ip_current is None or current_ips != previous_ips:
+                locked_test.ip_current = TestIP.objects.create(ip_address=live_ips)
+
             locked_test.last_test = timezone.now()
             locked_test.save(update_fields=['ip_current', 'last_test'])
         

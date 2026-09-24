@@ -24,9 +24,9 @@ def schedule_next_vulnerability_scan(test, base_time=None):
     from backend.backend_tasks_kali import vulnerability_scan_task
     from frontend.models import Test
 
-    revoke_scheduled_task(test)
-
     next_run = compute_next_run_time(test.cron, base_time)
+
+    revoke_scheduled_task(test)
 
     task = vulnerability_scan_task.apply_async(args=[test.id], eta=next_run)
 
