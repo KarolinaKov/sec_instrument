@@ -94,9 +94,9 @@ flowchart LR
     C -->|"upozornění, denní report"| M["SMTP / MailHog"]
     F -.->|"Download"| U
 ```
-!(images/kalendar_velky.png)
-!(images/kalendar_maly.png)
-!(images/input_download_display)
+!(images/kalendar_velky.jpg)
+!(images/kalendar_maly.jpg)
+!(images/input_download_display.jpg)
 
 ## Logy
 
