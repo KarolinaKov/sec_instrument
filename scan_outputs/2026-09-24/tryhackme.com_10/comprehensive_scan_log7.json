@@ -1,0 +1,94 @@
+{
+  "test_id": 10,
+  "log_scan_id": 7,
+  "nickname": "tryhackme.com",
+  "scan_start": "2026-09-24 06:55:00.027629+00:00",
+  "network": "64.239.109.1/32",
+  "live_ips_count": 2,
+  "tools_used": [
+    "nmap",
+    "nikto",
+    "nuclei",
+    "whatweb",
+    "sslyze"
+  ],
+  "results": [
+    {
+      "ip": "64.239.109.1",
+      "status": "success",
+      "tool_results": {
+        "nmap": {
+          "success": false,
+          "output_file": "",
+          "execution_time": 0
+        },
+        "nikto": {
+          "success": false,
+          "output_file": "",
+          "execution_time": 0
+        },
+        "nuclei": {
+          "success": false,
+          "output_file": "",
+          "execution_time": 0
+        },
+        "whatweb": {
+          "success": true,
+          "output_file": "/home/kali/sec_instrument/scan_outputs/2026-09-24/tryhackme.com_10/ip_64_239_109_1/whatweb_scan_log7.txt",
+          "execution_time": 4.048102617263794
+        },
+        "sslyze": {
+          "success": false,
+          "output_file": "",
+          "execution_time": 1.7981245517730713
+        }
+      },
+      "vulnerabilities": [],
+      "services": []
+    },
+    {
+      "ip": "64.239.123.1",
+      "status": "success",
+      "tool_results": {
+        "nmap": {
+          "success": true,
+          "output_file": "/home/kali/sec_instrument/scan_outputs/2026-09-24/tryhackme.com_10/ip_64_239_123_1/nmap_scan_log7.txt",
+          "execution_time": 64.21765851974487
+        },
+        "nikto": {
+          "success": false,
+          "output_file": "",
+          "execution_time": 0
+        },
+        "nuclei": {
+          "success": false,
+          "output_file": "",
+          "execution_time": 0
+        },
+        "whatweb": {
+          "success": true,
+          "output_file": "/home/kali/sec_instrument/scan_outputs/2026-09-24/tryhackme.com_10/ip_64_239_123_1/whatweb_scan_log7.txt",
+          "execution_time": 3.308851480484009
+        },
+        "sslyze": {
+          "success": false,
+          "output_file": "",
+          "execution_time": 0.9415709972381592
+        }
+      },
+      "vulnerabilities": [],
+      "services": [
+        {
+          "port": "80/tcp",
+          "service": "tcpwrapped",
+          "version": "|_http-aspnet-debug: ERROR: Script execution failed (use -d to debug)"
+        },
+        {
+          "port": "443/tcp",
+          "service": "tcpwrapped",
+          "version": "|_http-csrf: Couldn't find any CSRF vulnerabilities."
+        }
+      ]
+    }
+  ]
+}

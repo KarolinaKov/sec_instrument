@@ -1,0 +1,623 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Security Instrument Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <style>
+        body {
+            background-color: #f8f9fa;
+            padding: 20px;
+        }
+        .section-title {
+            font-weight: bold;
+            margin-bottom: 15px;
+            color: #495057;
+        }
+        .card {
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .data-grid {
+            overflow-x: auto;
+        }
+        .btn-group-actions {
+            display: flex;
+            gap: 5px;
+        }
+        .navbar {
+            margin-bottom: 30px;
+        }
+        .month-calendar {
+            display: grid;
+            grid-template-columns: repeat(7, minmax(90px, 1fr));
+            gap: 6px;
+            overflow-x: auto;
+        }
+        .calendar-heading {
+            color: #6c757d;
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-align: center;
+        }
+        .calendar-day {
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            min-height: 72px;
+            padding: 8px;
+            text-align: left;
+        }
+        .calendar-day.clickable { cursor: pointer; }
+        .calendar-day.clickable:hover { border-color: #495057; }
+        .calendar-day.empty { visibility: hidden; }
+        .occupancy-low { background-color: #fff; }
+        .occupancy-turquoise { background-color: #b8f2e6; }
+        .occupancy-green { background-color: #8ed081; }
+        .occupancy-orange { background-color: #ffc078; }
+        .occupancy-red { background-color: #f28b82; }
+        .calendar-count { display: block; font-size: 0.8rem; margin-top: 8px; }
+    </style>
+</head>
+<body data-is-senior="{{ is_senior|yesno:'true,false' }}">
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="#">Security Instrument</a>
+            <div class="navbar-nav ms-auto">
+                <span class="navbar-text me-3">Welcome, {{ user.username }}</span>
+                <form method="post" action="{% url 'logout' %}" class="d-inline">
+                    {% csrf_token %}
+                    <button class="btn btn-outline-light btn-sm" type="submit">
+                        Logout
+                    </button>
+                </form>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid">
+        <div class="card">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" id="previousMonth">Previous</button>
+                    <h5 class="section-title mb-0" id="scheduleMonthTitle">This Month</h5>
+                    <button type="button" class="btn btn-outline-secondary btn-sm" id="nextMonth">Next</button>
+                </div>
+                <div class="month-calendar" id="monthSchedule" aria-live="polite"></div>
+            </div>
+        </div>
+
+        {% if is_senior %}
+        <div class="card">
+            <div class="card-body">
+                <h5 class="section-title">Input</h5>
+                <form id="whatForm">
+                    {% csrf_token %}
+                    <div class="row g-3">
+                        <div class="col-md-2" id="ipAddressGroup">
+                            <label for="ipAddress" class="form-label">IP Address <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="ipAddress" name="ip_address"
+                                   placeholder="192.168.1.1" required>
+                        </div>
+                        <div class="col-md-2" id="prefixGroup">
+                            <label for="prefix" class="form-label">Prefix <span class="text-danger">*</span></label>
+                            <input type="number" class="form-control" id="prefix" name="prefix"
+                                   placeholder="24" min="0" max="32" required>
+                        </div>
+                        <div class="col-md-3">
+                            <label for="nickname" class="form-label">Nickname</label>
+                            <input type="text" class="form-control" id="nickname" name="nickname"
+                                   placeholder="Leave blank to auto-generate">
+                        </div>
+                        <div class="col-md-3" id="hostnameGroup">
+                            <label for="hostname" class="form-label">DNS Hostname</label>
+                            <input type="text" class="form-control" id="hostname" name="hostname"
+                                   placeholder="example.com (optional)">
+                        </div>
+                        <div class="col-md-3">
+                            <label for="cron" class="form-label">Schedule (Cron) <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="cron" name="cron"
+                                   placeholder="* * * * * (min hr day mon dow)" required>
+                            <small class="form-text text-muted">Example: 0 2 * * * (daily at 2 AM)</small>
+                        </div>
+                        <div class="col-md-2 d-flex align-items-end">
+                            <button type="submit" class="btn btn-primary w-100">Submit</button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="card">
+            <div class="card-body">
+                <h5 class="section-title">Download</h5>
+                <form id="gimmeForm">
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label for="fromDate" class="form-label">From <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="fromDate" name="from_date"
+                                   placeholder="Select start date" required>
+                        </div>
+                        <div class="col-md-4">
+                            <label for="untilDate" class="form-label">Until <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="untilDate" name="until_date"
+                                   placeholder="Select end date" required>
+                        </div>
+                        <div class="col-md-2">
+                            <label for="scanId" class="form-label">ID</label>
+                            <input type="number" class="form-control" id="scanId" name="id"
+                                   placeholder="Optional" min="1">
+                        </div>
+                        <div class="col-md-2 d-flex align-items-end">
+                            <button type="submit" class="btn btn-success w-100">Download</button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-body">
+                <h5 class="section-title">Data - Tests</h5>
+                <div class="data-grid">
+                    <table class="table table-striped table-hover" id="testsTable">
+                        <thead class="table-dark">
+                            <tr>
+                                <th>ID</th>
+                                <th>Nickname</th>
+                                <th>IP/Prefix</th>
+                                <th>Hostname</th>
+                                <th>Last Test</th>
+                                <th>Next Scheduled</th>
+                                <th>When Added</th>
+                                {% if is_senior %}<th>New Threat Alerts</th>{% endif %}
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="testsTableBody">
+                            <tr>
+                                <td colspan="9" class="text-center">Loading...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="dayScheduleModal" tabindex="-1" aria-labelledby="dayScheduleTitle" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="dayScheduleTitle">Daily Schedule</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body" id="dayScheduleBody"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+
+    <script>
+        function getCookie(name) {
+            let cookieValue = null;
+            if (document.cookie && document.cookie !== '') {
+                const cookies = document.cookie.split(';');
+                for (let i = 0; i < cookies.length; i++) {
+                    const cookie = cookies[i].trim();
+                    if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                        break;
+                    }
+                }
+            }
+            return cookieValue;
+        }
+
+        const csrftoken = getCookie('csrftoken');
+        const isSenior = document.body.dataset.isSenior === 'true';
+        const currentDate = new Date();
+        let scheduleYear = currentDate.getFullYear();
+        let scheduleMonth = currentDate.getMonth() + 1;
+
+        flatpickr("#fromDate", {
+            dateFormat: "Y-m-d"
+        });
+
+        flatpickr("#untilDate", {
+            dateFormat: "Y-m-d"
+        });
+
+        document.addEventListener('DOMContentLoaded', function() {
+            loadTests();
+            loadMonthlySchedule();
+            document.getElementById('previousMonth').addEventListener('click', () => changeScheduleMonth(-1));
+            document.getElementById('nextMonth').addEventListener('click', () => changeScheduleMonth(1));
+        });
+
+        function changeScheduleMonth(offset) {
+            const selectedMonth = new Date(scheduleYear, scheduleMonth - 1 + offset, 1);
+            scheduleYear = selectedMonth.getFullYear();
+            scheduleMonth = selectedMonth.getMonth() + 1;
+            loadMonthlySchedule();
+        }
+
+        async function loadMonthlySchedule() {
+            try {
+                const response = await fetch(
+                    `/api/tests/monthly_schedule/?year=${scheduleYear}&month=${scheduleMonth}`,
+                    {
+                    credentials: 'same-origin',
+                    headers: { 'X-CSRFToken': csrftoken }
+                    }
+                );
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                const schedule = await response.json();
+                renderMonthlySchedule(schedule);
+            } catch (error) {
+                document.getElementById('monthSchedule').textContent = 'Unable to load schedule.';
+                console.error('Error loading monthly schedule:', error);
+            }
+        }
+
+        function renderMonthlySchedule(schedule) {
+            document.getElementById('scheduleMonthTitle').textContent = schedule.month_name;
+            const calendarElement = document.getElementById('monthSchedule');
+            const headings = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+            const cells = headings.map(day => `<div class="calendar-heading">${day}</div>`);
+            const firstWeekday = schedule.days[0].weekday;
+
+            for (let index = 0; index < firstWeekday; index++) {
+                cells.push('<div class="calendar-day empty"></div>');
+            }
+
+            schedule.days.forEach(day => {
+                const occupancyClass = getOccupancyClass(day.count);
+                const clickable = ' clickable';
+                cells.push(`
+                    <button type="button" class="calendar-day ${occupancyClass}${clickable}"
+                            onclick="showDaySchedule(${day.day})">
+                        <strong>${day.day}</strong>
+                        <span class="calendar-count">${day.count} scheduled</span>
+                    </button>
+                `);
+            });
+            calendarElement.innerHTML = cells.join('');
+            window.monthlySchedule = schedule;
+        }
+
+        function getOccupancyClass(count) {
+            if (count < 2) return 'occupancy-low';
+            if (count < 5) return 'occupancy-turquoise';
+            if (count < 10) return 'occupancy-green';
+            if (count < 20) return 'occupancy-orange';
+            return 'occupancy-red';
+        }
+
+        function showDaySchedule(dayNumber) {
+            const day = window.monthlySchedule.days.find(item => item.day === dayNumber);
+            document.getElementById('dayScheduleTitle').textContent =
+                `${window.monthlySchedule.month_name} ${dayNumber}`;
+            const body = document.getElementById('dayScheduleBody');
+            body.innerHTML = day.hours.length ? `
+                <table class="table table-sm">
+                    <thead><tr><th>Hour</th><th>Scheduled</th><th>Tests</th></tr></thead>
+                    <tbody>${day.hours.map(hour => `
+                        <tr>
+                            <td>${String(hour.hour).padStart(2, '0')}:00</td>
+                            <td>${hour.count}</td>
+                            <td>${hour.tests.join('<br>')}</td>
+                        </tr>`).join('')}
+                    </tbody>
+                </table>` : '<p class="mb-0">No schedules for this day.</p>';
+            bootstrap.Modal.getOrCreateInstance(document.getElementById('dayScheduleModal')).show();
+        }
+
+        const whatForm = document.getElementById('whatForm');
+        const ipAddressInput = document.getElementById('ipAddress');
+        const prefixInput = document.getElementById('prefix');
+        const hostnameInput = document.getElementById('hostname');
+
+        function updateInputMode() {
+            if (!whatForm) {
+                return;
+            }
+
+            const hasHostname = hostnameInput.value.trim() !== '';
+            const hasIpInput = ipAddressInput.value.trim() !== '' || prefixInput.value.trim() !== '';
+            const useDns = hasHostname && !hasIpInput;
+            const useIp = hasIpInput && !hasHostname;
+
+            document.getElementById('ipAddressGroup').classList.toggle('d-none', useDns);
+            document.getElementById('prefixGroup').classList.toggle('d-none', useDns);
+            document.getElementById('hostnameGroup').classList.toggle('d-none', useIp);
+            ipAddressInput.disabled = useDns;
+            prefixInput.disabled = useDns;
+            hostnameInput.disabled = useIp;
+            ipAddressInput.required = !useDns;
+            prefixInput.required = !useDns;
+            hostnameInput.required = false;
+        }
+
+        if (whatForm) {
+            [ipAddressInput, prefixInput].forEach(input => {
+                input.addEventListener('input', function() {
+                    if (this.value.trim() !== '') {
+                        hostnameInput.value = '';
+                    }
+                    updateInputMode();
+                });
+            });
+            hostnameInput.addEventListener('input', function() {
+                if (this.value.trim() !== '') {
+                    ipAddressInput.value = '';
+                    prefixInput.value = '';
+                }
+                updateInputMode();
+            });
+            updateInputMode();
+        }
+
+        whatForm?.addEventListener('submit', async function(e) {
+            e.preventDefault();
+
+            const hostname = hostnameInput.value.trim();
+            const formData = {
+                nickname: document.getElementById('nickname').value,
+                cron: document.getElementById('cron').value
+            };
+
+            if (hostname) {
+                formData.hostname = hostname;
+            } else {
+                formData.ip_address = ipAddressInput.value;
+                formData.prefix = parseInt(prefixInput.value);
+            }
+
+            try {
+                const response = await fetch('/api/submit-test/', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrftoken
+                    },
+                    body: JSON.stringify(formData)
+                });
+
+                if (response.ok) {
+                    alert('Test created! Scan is running in the background.');
+                    this.reset();
+                    updateInputMode();
+                    loadTests();
+                } else {
+                    const error = await response.json();
+                    alert('Error: ' + JSON.stringify(error));
+                }
+            } catch (error) {
+                alert('Error submitting form: ' + error);
+            }
+        });
+
+        document.getElementById('gimmeForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+
+            const fromDate = document.getElementById('fromDate').value;
+            const untilDate = document.getElementById('untilDate').value;
+            const scanId = document.getElementById('scanId').value.trim();
+
+            const idQuery = scanId ? `&id=${encodeURIComponent(scanId)}` : '';
+            const url = `/api/tests/download_scan_outputs/?from_date=${encodeURIComponent(fromDate)}&until_date=${encodeURIComponent(untilDate)}${idQuery}`;
+
+            try {
+                const response = await fetch(url, {
+                    method: 'GET',
+                    credentials: 'same-origin',
+                    headers: {
+                        'X-CSRFToken': csrftoken
+                    }
+                });
+
+                if (response.ok) {
+                    const blob = await response.blob();
+                    const downloadUrl = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = downloadUrl;
+                    a.download = `${fromDate}-${untilDate}${scanId ? `-${scanId}` : ''}.zip`;
+                    document.body.appendChild(a);
+                    a.click();
+                    a.remove();
+                    window.URL.revokeObjectURL(downloadUrl);
+                } else {
+                    const error = await response.json();
+                    alert('Error: ' + JSON.stringify(error));
+                }
+            } catch (error) {
+                alert('Error downloading scan outputs: ' + error);
+            }
+        });
+
+        async function loadTests() {
+            try {
+                const response = await fetch('/api/tests/', {
+                    credentials: 'same-origin',
+                    headers: {
+                        'X-CSRFToken': csrftoken
+                    }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    console.log('API RESPONSE', data);
+                    const tests = data.results || data;
+                    displayTests(tests);
+                } else {
+                    console.error('Error loading tests', response.status);
+                }
+            } catch (error) {
+                console.error('Error:', error);
+            }
+        }
+
+        function displayTests(tests) {
+            const tbody = document.getElementById('testsTableBody');
+
+            if (tests.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="9" class="text-center">No tests found</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = tests.map(test => `
+                <tr>
+                    <td>${test.id}</td>
+                    <td>${test.nickname}</td>
+                    <td>${test.ip_address}/${test.prefix}</td>
+                    <td>${test.hostname || 'N/A'}</td>
+                    <td>${test.last_test ? formatDate(test.last_test) : 'N/A'}</td>
+                    <td>${test.next_scheduled ? formatDate(test.next_scheduled) : 'N/A'}</td>
+                    <td>${formatDate(test.when_added)}</td>
+                    ${isSenior ? `<td>
+                        <label class="d-block">
+                            <input type="checkbox"
+                                   ${test.new_vulnerability_alerts_enabled ? 'checked' : ''}
+                                   onchange="toggleNewThreatAlerts(${test.id}, this.checked)">
+                            New only
+                        </label>
+                        ${test.new_vulnerability_alerts_since ? `<small>Since: ${formatDate(test.new_vulnerability_alerts_since)}</small>` : ''}
+                        ${test.new_vulnerability_alerts_log_scan_id ? `<small class="d-block">LogScan #${test.new_vulnerability_alerts_log_scan_id}</small>` : ''}
+                    </td>` : ''}
+                    <td>
+                        <div class="btn-group-actions">
+                            <button class="btn btn-sm btn-info" onclick="downloadSingle(${test.id}, '${test.nickname}')">
+                                Download
+                            </button>
+                            ${isSenior ? `
+                            <button class="btn btn-sm ${test.cron_is_active ? 'btn-warning' : 'btn-success'}"
+                                    onclick="toggleTestSchedule(${test.id}, ${!test.cron_is_active})">
+                                ${test.cron_is_active ? 'Deactivate' : 'Activate'}
+                            </button>
+                            <button class="btn btn-sm btn-danger" onclick="deleteTest(${test.id})">
+                                Delete
+                            </button>` : ''}
+                        </div>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        function formatDate(dateString) {
+            const date = new Date(dateString);
+            return date.toLocaleString();
+        }
+
+        async function toggleNewThreatAlerts(testId, enabled) {
+            try {
+                const response = await fetch(`/api/tests/${testId}/alert-settings/`, {
+                    method: 'PATCH',
+                    credentials: 'same-origin',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrftoken
+                    },
+                    body: JSON.stringify({ enabled })
+                });
+                if (!response.ok) {
+                    const error = await response.json().catch(() => ({}));
+                    throw new Error(error.error || `HTTP ${response.status}`);
+                }
+                loadTests();
+            } catch (error) {
+                alert('Unable to update threat alerts: ' + error.message);
+                loadTests();
+            }
+        }
+
+        async function toggleTestSchedule(testId, enabled) {
+            try {
+                const response = await fetch(`/api/tests/${testId}/schedule-settings/`, {
+                    method: 'PATCH',
+                    credentials: 'same-origin',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrftoken
+                    },
+                    body: JSON.stringify({ enabled })
+                });
+                if (!response.ok) {
+                    const error = await response.json().catch(() => ({}));
+                    throw new Error(error.error || `HTTP ${response.status}`);
+                }
+                loadTests();
+            } catch (error) {
+                alert('Unable to update scan schedule: ' + error.message);
+                loadTests();
+            }
+        }
+
+        async function downloadSingle(testId, nickname) {
+            try {
+                const response = await fetch(`/api/tests/${testId}/download_last_scan/`, {
+                    method: 'GET',
+                    credentials: 'same-origin',
+                    headers: {
+                        'X-CSRFToken': csrftoken
+                    }
+                });
+
+                if (response.ok) {
+                    const blob = await response.blob();
+                    const downloadUrl = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = downloadUrl;
+                    const disposition = response.headers.get('Content-Disposition') || '';
+                    const match = disposition.match(/filename="?([^"]+)"?/);
+                    a.download = match ? match[1] : `test_${testId}_${nickname}_last_scan.json`;
+                    document.body.appendChild(a);
+                    a.click();
+                    a.remove();
+                    window.URL.revokeObjectURL(downloadUrl);
+                } else {
+                    const error = await response.json().catch(() => ({}));
+                    alert('Error downloading last scan: ' + (error.error || response.status));
+                }
+            } catch (error) {
+                alert('Error: ' + error);
+            }
+        }
+
+        async function deleteTest(testId) {
+            if (!confirm('Are you sure you want to delete this test?')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/tests/${testId}/`, {
+                    method: 'DELETE',
+                    credentials: 'same-origin',
+                    headers: {
+                        'X-CSRFToken': csrftoken
+                    }
+                });
+
+                if (response.ok || response.status === 204) {
+                    alert('Test deleted successfully');
+                    loadTests();
+                } else {
+                    alert('Error deleting test');
+                }
+            } catch (error) {
+                alert('Error: ' + error);
+            }
+        }
+
+        setInterval(loadTests, 30000);
+    </script>
+</body>
+</html>

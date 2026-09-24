@@ -1,0 +1,1 @@
+# Nmap 7.99 scan initiated Thu Sep 24 08:55:00 2026 as: /usr/lib/nmap/nmap --privileged -sV -sC --script=vuln -oN /home/kali/sec_instrument/scan_outputs/2026-09-24/tryhackme.com_10/ip_64_239_109_1/nmap_scan_log7.txt 64.239.109.1

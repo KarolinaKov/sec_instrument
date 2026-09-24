@@ -1,0 +1,18 @@
+# Nmap 7.99 scan initiated Thu Sep 24 11:19:54 2026 as: /usr/lib/nmap/nmap --privileged -sV -sC --script=vuln -oN /home/kali/sec_instrument/scan_outputs/2026-09-24/aaaa_12/ip_192_168_244_136/nmap_scan_log9.txt 192.168.244.136
+Nmap scan report for 192.168.244.136
+Host is up (0.00089s latency).
+Not shown: 998 filtered tcp ports (no-response)
+PORT     STATE SERVICE VERSION
+22/tcp   open  ssh     OpenSSH 10.4p1 Debian 4 (protocol 2.0)
+| vulners: 
+|   cpe:/a:openbsd:openssh:10.4p1: 
+|     	CVE-2026-73282	4.8	https://vulners.com/cve/CVE-2026-73282
+|     	CVE-2026-73281	3.5	https://vulners.com/cve/CVE-2026-73281
+|_    	CVE-2026-73283	2.5	https://vulners.com/cve/CVE-2026-73283
+1025/tcp open  smtp    MailHog smtpd
+| smtp-vuln-cve2010-4344: 
+|_  The SMTP server is not Exim: NOT VULNERABLE
+Service Info: Host: mailhog.example; OS: Linux; CPE: cpe:/o:linux:linux_kernel
+
+Service detection performed. Please report any incorrect results at https://nmap.org/submit/ .
+# Nmap done at Thu Sep 24 11:20:12 2026 -- 1 IP address (1 host up) scanned in 17.61 seconds
