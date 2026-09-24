@@ -1,4 +1,0 @@
-- Nikto v2.6.0/
-+ Target Host: 192.168.244.2
-+ Target Port: 80
-+ GET Unable to connect to 192.168.244.2:80.
