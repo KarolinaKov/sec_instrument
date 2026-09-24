@@ -82,6 +82,22 @@ sec_instrument/  nastavení Djanga a Celery
 scan_outputs/    výsledky skenů (vzniká za běhu, není v gitu)
 ```
 
+```mermaid
+flowchart LR
+    U["Prohlížeč<br/>senior / junior"] -->|"REST API"| W["Django"]
+    W <--> DB[("PostgreSQL")]
+    W -->|"naplánuje úlohu"| MQ["RabbitMQ"]
+    MQ --> C["Celery worker"]
+    C -->|"ping, nmap, nikto,<br/>nuclei, whatweb, sslyze"| T["Cílová síť"]
+    C --> DB
+    C --> F["scan_outputs/<br/>výsledky"]
+    C -->|"upozornění, denní report"| M["SMTP / MailHog"]
+    F -.->|"Download"| U
+```
+(images/kalendar_velky.png)
+(images/kalendar_maly.png)
+(images/input_download_display)
+
 ## Logy
 
 Soubory v `logs/`: `django.log`, `django_errors.log`, `celery.log`, `scans.log`, `celery_worker.log`.
