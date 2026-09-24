@@ -19,6 +19,11 @@ class TestSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'when_added', 'last_test', 'next_scheduled']
     
     def validate(self, data):
+        if self.instance and self.partial and not any(
+            field in data for field in ('ip_address', 'prefix', 'hostname')
+        ):
+            return data
+
         hostname = data.get('hostname', '').strip()
         ip_address = data.get('ip_address')
         prefix = data.get('prefix')

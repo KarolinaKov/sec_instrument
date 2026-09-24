@@ -114,12 +114,12 @@
                         <div class="col-md-3" id="hostnameGroup">
                             <label for="hostname" class="form-label">DNS Hostname</label>
                             <input type="text" class="form-control" id="hostname" name="hostname"
-                                   placeholder="example.com (optional)">
+                                   placeholder="example.com">
                         </div>
                         <div class="col-md-3">
                             <label for="cron" class="form-label">Schedule (Cron) <span class="text-danger">*</span></label>
                             <input type="text" class="form-control" id="cron" name="cron"
-                                   placeholder="* * * * * (min hr day mon dow)" required>
+                                   placeholder="* * * * *" required>
                             <small class="form-text text-muted">Example: 0 2 * * * (daily at 2 AM)</small>
                         </div>
                         <div class="col-md-2 d-flex align-items-end">
@@ -196,6 +196,34 @@
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body" id="dayScheduleBody"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="editTestModal" tabindex="-1" aria-labelledby="editTestTitle" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="editTestTitle">Edit Test</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <form id="editTestForm">
+                    <div class="modal-body">
+                        <input type="hidden" id="editTestId">
+                        <div class="mb-3">
+                            <label for="editNickname" class="form-label">Nickname</label>
+                            <input type="text" class="form-control" id="editNickname" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="editCron" class="form-label">Schedule (Cron)</label>
+                            <input type="text" class="form-control" id="editCron" required>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Save changes</button>
+                    </div>
+                </form>
             </div>
         </div>
     </div>
@@ -335,9 +363,6 @@
             const useDns = hasHostname && !hasIpInput;
             const useIp = hasIpInput && !hasHostname;
 
-            document.getElementById('ipAddressGroup').classList.toggle('d-none', useDns);
-            document.getElementById('prefixGroup').classList.toggle('d-none', useDns);
-            document.getElementById('hostnameGroup').classList.toggle('d-none', useIp);
             ipAddressInput.disabled = useDns;
             prefixInput.disabled = useDns;
             hostnameInput.disabled = useIp;
@@ -474,6 +499,8 @@
                 return;
             }
 
+            window.testsById = Object.fromEntries(tests.map(test => [test.id, test]));
+
             tbody.innerHTML = tests.map(test => `
                 <tr>
                     <td>${test.id}</td>
@@ -503,6 +530,9 @@
                                     onclick="toggleTestSchedule(${test.id}, ${!test.cron_is_active})">
                                 ${test.cron_is_active ? 'Deactivate' : 'Activate'}
                             </button>
+                            <button class="btn btn-sm btn-secondary" onclick="openEditTest(${test.id})">
+                                Edit
+                            </button>
                             <button class="btn btn-sm btn-danger" onclick="deleteTest(${test.id})">
                                 Delete
                             </button>` : ''}
@@ -516,6 +546,41 @@
             const date = new Date(dateString);
             return date.toLocaleString();
         }
+
+        function openEditTest(testId) {
+            const test = window.testsById[testId];
+            document.getElementById('editTestId').value = testId;
+            document.getElementById('editNickname').value = test.nickname;
+            document.getElementById('editCron').value = test.cron;
+            bootstrap.Modal.getOrCreateInstance(document.getElementById('editTestModal')).show();
+        }
+
+        document.getElementById('editTestForm').addEventListener('submit', async function(event) {
+            event.preventDefault();
+            const testId = document.getElementById('editTestId').value;
+            try {
+                const response = await fetch(`/api/tests/${testId}/`, {
+                    method: 'PATCH',
+                    credentials: 'same-origin',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrftoken
+                    },
+                    body: JSON.stringify({
+                        nickname: document.getElementById('editNickname').value.trim(),
+                        cron: document.getElementById('editCron').value.trim()
+                    })
+                });
+                if (!response.ok) {
+                    const error = await response.json().catch(() => ({}));
+                    throw new Error(JSON.stringify(error));
+                }
+                bootstrap.Modal.getInstance(document.getElementById('editTestModal')).hide();
+                loadTests();
+            } catch (error) {
+                alert('Unable to edit test: ' + error.message);
+            }
+        });
 
         async function toggleNewThreatAlerts(testId, enabled) {
             try {

@@ -73,6 +73,25 @@ class TestViewSet(viewsets.ModelViewSet):
     serializer_class = TestSerializer
     http_method_names = ['get', 'patch', 'delete']
 
+    def partial_update(self, request, *args, **kwargs):
+        if 'cron' in request.data:
+            try:
+                croniter(str(request.data['cron']), timezone.now())
+            except (TypeError, ValueError):
+                return Response(
+                    {'cron': 'Enter a valid five-part cron expression.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+        response = super().partial_update(request, *args, **kwargs)
+        if response.status_code < 300 and 'cron' in request.data:
+            test = self.get_object()
+            if test.cron_is_active:
+                from backend.scheduler import enable_scan_schedule
+                enable_scan_schedule(test)
+                response.data = TestSerializer(test).data
+        return response
+
     def get_permissions(self):
         if self.action in ('destroy', 'partial_update', 'alert_settings', 'schedule_settings'):
             permission_classes = [IsAuthenticated, IsSenior]
