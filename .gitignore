@@ -6,3 +6,4 @@ run/
 staticfiles/
 scan_outputs/
 images/
+setup_kali_env.sh
