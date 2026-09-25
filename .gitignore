@@ -5,3 +5,4 @@ logs/
 run/
 staticfiles/
 scan_outputs/
+images/
