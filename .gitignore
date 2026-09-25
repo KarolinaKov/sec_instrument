@@ -1,4 +1,4 @@
-<<<<<<< Updated upstream
+
 .env
 __pycache__/
 *.py[cod]
@@ -7,11 +7,5 @@ run/
 staticfiles/
 scan_outputs/
 images/
-<<<<<<< Updated upstream
 setup_kali_env.sh
-=======
-=======
-# Created by venv; see https://docs.python.org/3/library/venv.html
-*
->>>>>>> Stashed changes
->>>>>>> Stashed changes
+
