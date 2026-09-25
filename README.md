@@ -106,6 +106,3 @@ Soubory v `logs/`: `django.log`, `django_errors.log`, `celery.log`, `scans.log`,
 
 Skenujte pouze systémy, které vlastníte nebo k nimž máte písemné oprávnění.
 
-
-
-Podrobná technická dokumentace a uživatelská příručka jsou v Projectu (`sec_instrument_dokumentace.md`, `sec_instrument_uzivatelska_prirucka.md`).setup_kali_env.sh musi byt nad repem
