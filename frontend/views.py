@@ -187,7 +187,7 @@ class TestViewSet(viewsets.ModelViewSet):
         month_end = month_start + timedelta(days=days_in_month)
         daily_counts = {day: 0 for day in range(1, days_in_month + 1)}
         hourly_counts = {
-            day: {hour: {'count': 0, 'tests': set()} for hour in range(24)}
+            day: {hour: {'count': 0, 'tests': {}} for hour in range(24)}
             for day in range(1, days_in_month + 1)
         }
 
@@ -203,8 +203,8 @@ class TestViewSet(viewsets.ModelViewSet):
                     hour = occurrence.hour
                     daily_counts[day] += 1
                     hourly_counts[day][hour]['count'] += 1
-                    hourly_counts[day][hour]['tests'].add(
-                        f'{test.nickname} (#{test.id})'
+                    hourly_counts[day][hour]['tests'].setdefault(
+                        f'{test.nickname} (#{test.id})', False
                     )
                     occurrence = schedule.get_next(datetime)
             except (ValueError, KeyError, TypeError):
@@ -227,7 +227,7 @@ class TestViewSet(viewsets.ModelViewSet):
             label = f'Retry: {test.nickname} (#{test.id})'
             daily_counts[day] += 1
             hourly_counts[day][hour]['count'] += 1
-            hourly_counts[day][hour]['tests'].add(label)
+            hourly_counts[day][hour]['tests'][label] = True
 
         days = []
         for day in range(1, days_in_month + 1):
@@ -235,7 +235,10 @@ class TestViewSet(viewsets.ModelViewSet):
                 {
                     'hour': hour,
                     'count': hourly_counts[day][hour]['count'],
-                    'tests': sorted(hourly_counts[day][hour]['tests'])
+                    'tests': [
+                        {'label': label, 'retrying': retrying}
+                        for label, retrying in sorted(hourly_counts[day][hour]['tests'].items())
+                    ]
                 }
                 for hour in range(24)
                 if hourly_counts[day][hour]['count']

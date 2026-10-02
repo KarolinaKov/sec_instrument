@@ -38,7 +38,7 @@ def schedule_next_vulnerability_scan(test, base_time=None):
         day_of_month=cron_parts[2],
         month_of_year=cron_parts[3],
         day_of_week=cron_parts[4],
-        timezone=timezone.now(),
+        timezone=timezone.get_current_timezone(),
     )
     PeriodicTask.objects.update_or_create(
         name=_periodic_task_name(test),
