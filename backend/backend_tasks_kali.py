@@ -309,7 +309,7 @@ def perform_multi_tool_scan(ip, output_dir, log_scan_id):
     
     if len(results['errors']) == len([t for t in SCAN_TOOLS.values() if t['enabled']]):
         results['success'] = False
-    
+
     return results
 
 
