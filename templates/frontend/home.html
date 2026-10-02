@@ -502,7 +502,7 @@
             window.testsById = Object.fromEntries(tests.map(test => [test.id, test]));
 
             tbody.innerHTML = tests.map(test => `
-                <tr>
+                <tr class="${getTestStatusClass(test.status)}">
                     <td>${test.id}</td>
                     <td>${test.nickname}</td>
                     <td>${test.ip_address}/${test.prefix}</td>
@@ -540,6 +540,12 @@
                     </td>
                 </tr>
             `).join('');
+        }
+
+        function getTestStatusClass(status) {
+            if (Number(status) === 3) return 'table-secondary';
+            if (Number(status) === 2) return 'table-warning';
+            return '';
         }
 
         function formatDate(dateString) {

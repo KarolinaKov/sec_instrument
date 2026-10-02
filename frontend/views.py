@@ -21,6 +21,8 @@ import csv
 import io
 import zipfile
 
+SCHEDULE_FIELDS = {'ip_address', 'prefix', 'hostname', 'cron', 'cron_is_active'}
+
 
 @ensure_csrf_cookie
 @login_required
@@ -74,6 +76,16 @@ class TestViewSet(viewsets.ModelViewSet):
     http_method_names = ['get', 'patch', 'delete']
 
     def partial_update(self, request, *args, **kwargs):
+        test = self.get_object()
+        if SCHEDULE_FIELDS.intersection(request.data):
+            from backend.models import LogScan
+
+            if LogScan.objects.filter(test=test, status='running').exists():
+                return Response(
+                    {'error': 'Schedule settings cannot be changed while a scan is running.'},
+                    status=status.HTTP_409_CONFLICT
+                )
+
         if 'cron' in request.data:
             try:
                 croniter(str(request.data['cron']), timezone.now())
@@ -83,14 +95,7 @@ class TestViewSet(viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
-        response = super().partial_update(request, *args, **kwargs)
-        if response.status_code < 300 and 'cron' in request.data:
-            test = self.get_object()
-            if test.cron_is_active:
-                from backend.scheduler import enable_scan_schedule
-                enable_scan_schedule(test)
-                response.data = TestSerializer(test).data
-        return response
+        return super().partial_update(request, *args, **kwargs)
 
     def get_permissions(self):
         if self.action in ('destroy', 'partial_update', 'alert_settings', 'schedule_settings'):
@@ -136,6 +141,14 @@ class TestViewSet(viewsets.ModelViewSet):
     def schedule_settings(self, request, pk=None):
         """Activate or deactivate the recurring scan schedule for one test."""
         test = self.get_object()
+        from backend.models import LogScan
+
+        if LogScan.objects.filter(test=test, status='running').exists():
+            return Response(
+                {'error': 'Schedule settings cannot be changed while a scan is running.'},
+                status=status.HTTP_409_CONFLICT
+            )
+
         enabled = request.data.get('enabled')
         if not isinstance(enabled, bool):
             return Response(

@@ -2,6 +2,7 @@ from celery import shared_task
 from croniter import croniter
 from django_celery_beat.models import PeriodicTask, CrontabSchedule
 from django.utils import timezone
+from frontend.models import Test
 import logging
 
 logger = logging.getLogger('celery')
@@ -20,9 +21,7 @@ def compute_next_run_time(cron_expr, base_time=None):
 
 
 def schedule_next_vulnerability_scan(test, base_time=None):
-
     from backend.backend_tasks_kali import vulnerability_scan_task
-    from frontend.models import Test
 
     revoke_scheduled_task(test)
 
@@ -33,13 +32,59 @@ def schedule_next_vulnerability_scan(test, base_time=None):
     Test.objects.filter(id=test.id).update(
         next_scheduled=next_run,
         scheduled_task_id=task.id,
+        status=1,
     )
     test.next_scheduled = next_run
     test.scheduled_task_id = task.id
+    test.status = 1
 
     logger.info(f"Scheduled next vulnerability scan for test {test.id} at {next_run} (task {task.id})")
 
     return next_run
+
+def schedule_retry(test, log_scan, reason, hours_delay=0, high_priority=False):
+    from backend.backend_tasks_kali import vulnerability_scan_task
+    from backend.models import LogScanRetry
+    from datetime import timedelta
+
+    scheduled_time = timezone.now() + timedelta(hours=hours_delay)
+
+    retry = LogScanRetry.objects.create(
+        log_scan=log_scan,
+        reason_to_retry=reason,
+        scheduled_for=scheduled_time,
+    )
+
+    revoke_scheduled_task(test)
+
+    if hours_delay == 0:
+        task = vulnerability_scan_task.apply_async(
+            args=[log_scan.test.id],
+            priority=9 if high_priority else 5,
+        )
+    else:
+        task = vulnerability_scan_task.apply_async(
+            args=[log_scan.test.id],
+            eta=scheduled_time,
+        )
+
+    retry.celery_task_id = task.id
+    retry.save(update_fields=['celery_task_id'])
+
+    Test.objects.filter(id=test.id).update(
+        next_scheduled= scheduled_time,
+        scheduled_task_id=task.id,
+        status=2,
+    )
+    test.next_scheduled = scheduled_time
+    test.scheduled_task_id = task.id
+    test.status = 2
+
+    logger.info(
+        f"Scheduled retry {retry.id} for {scheduled_time} "
+        f"(reason: {reason})"
+    )
+    return retry
 
 
 def revoke_scheduled_task(test):
@@ -55,13 +100,13 @@ def revoke_scheduled_task(test):
     except Exception as e:
         logger.warning(f"Could not revoke task {test.scheduled_task_id} for test {test.id}: {e}")
 
-
 def enable_scan_schedule(test, base_time=None):
 
     from frontend.models import Test
 
-    Test.objects.filter(id=test.id).update(cron_is_active=True)
+    Test.objects.filter(id=test.id).update(cron_is_active=True, status=1)
     test.cron_is_active = True
+    test.status = 1
 
     next_run = schedule_next_vulnerability_scan(test, base_time)
     logger.info(f"Enabled schedule for test {test.id}, next run at {next_run}")
@@ -78,10 +123,12 @@ def disable_scan_schedule(test):
         cron_is_active=False,
         next_scheduled=None,
         scheduled_task_id='',
+        status=3,
     )
     test.cron_is_active = False
     test.next_scheduled = None
     test.scheduled_task_id = ''
+    test.status = 3
 
     logger.info(f"Disabled schedule for test {test.id}")
 

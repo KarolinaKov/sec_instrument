@@ -47,7 +47,7 @@ if pgrep -f "celery -A sec_instrument worker" >/dev/null 2>&1; then
     WARN "Celery worker already running, skipping"
 else
     nohup celery -A sec_instrument worker --loglevel=info \
-        > "${LOG_DIR}/celery_worker.log" 2>&1 &
+        >> "${LOG_DIR}/celery_worker.log" 2>&1 &
     echo $! > "${RUN_DIR}/celery_worker.pid"
     sleep 1
     echo "Celery worker started (PID $(cat "${RUN_DIR}/celery_worker.pid"))"
@@ -59,7 +59,7 @@ if pgrep -f "celery -A sec_instrument beat" >/dev/null 2>&1; then
 else
     nohup celery -A sec_instrument beat --loglevel=info \
         --scheduler django_celery_beat.schedulers:DatabaseScheduler \
-        > "${LOG_DIR}/celery_beat.log" 2>&1 &
+        >> "${LOG_DIR}/celery_beat.log" 2>&1 &
     echo $! > "${RUN_DIR}/celery_beat.pid"
     sleep 1
     echo "Celery beat started (PID $(cat "${RUN_DIR}/celery_beat.pid"))"
