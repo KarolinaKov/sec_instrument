@@ -1,4 +1,3 @@
-from celery import shared_task
 from croniter import croniter
 from django_celery_beat.models import PeriodicTask, CrontabSchedule
 from django.utils import timezone
@@ -26,6 +25,7 @@ def compute_next_run_time(cron_expr, base_time=None):
 
 def schedule_next_vulnerability_scan(test, base_time=None):
     from backend.backend_tasks_kali import vulnerability_scan_task
+    from django.conf import settings
 
     revoke_scheduled_task(test)
 
@@ -38,7 +38,7 @@ def schedule_next_vulnerability_scan(test, base_time=None):
         day_of_month=cron_parts[2],
         month_of_year=cron_parts[3],
         day_of_week=cron_parts[4],
-        timezone=timezone.get_current_timezone(),
+        timezone=settings.TIME_ZONE,
     )
     PeriodicTask.objects.update_or_create(
         name=_periodic_task_name(test),
@@ -156,6 +156,7 @@ def disable_scan_schedule(test):
 
 
 def setup_daily_report():
+    from django.conf import settings
 
     schedule, created = CrontabSchedule.objects.get_or_create(
         minute='0',
@@ -163,7 +164,7 @@ def setup_daily_report():
         day_of_month='*',
         month_of_year='*',
         day_of_week='*',
-        timezone=timezone.get_current_timezone()
+        timezone=settings.TIME_ZONE
     )
 
     task, created = PeriodicTask.objects.update_or_create(
@@ -181,34 +182,27 @@ def setup_daily_report():
     return task
 
 
-@shared_task
-def cleanup_old_scans(days=30):
-
-    from backend.models import LogScan
-    from datetime import timedelta
-    import shutil
-    from pathlib import Path
+def setup_scan_cleanup():
+    from backend.backend_tasks_kali import cleanup_old_scans
     from django.conf import settings
 
-    logger.info(f"Starting cleanup of scans older than {days} days...")
+    schedule, created = CrontabSchedule.objects.get_or_create(
+        minute='0',
+        hour='3',
+        day_of_month='1',
+        month_of_year='1,4,7,10',
+        day_of_week='*',
+        timezone=settings.TIME_ZONE,
+    )
 
-    cutoff_date = timezone.now() - timedelta(days=days)
+    task, created = PeriodicTask.objects.update_or_create(
+        name='quarterly_scan_cleanup',
+        defaults={
+            'crontab': schedule,
+            'task': cleanup_old_scans.name,
+            'enabled': True,
+        }
+    )
 
-    old_scans = LogScan.objects.filter(timestamp_start__lt=cutoff_date)
-    count = old_scans.count()
-
-    for scan in old_scans:
-        if scan.path_to_file:
-            file_path = Path(scan.path_to_file)
-            if file_path.exists():
-                log_dir = file_path.parent
-                try:
-                    shutil.rmtree(log_dir)
-                    logger.debug(f"Deleted scan directory: {log_dir}")
-                except Exception as e:
-                    logger.error(f"Error deleting directory {log_dir}: {e}")
-
-    old_scans.delete()
-
-    logger.info(f"Cleaned up {count} old scan logs older than {days} days")
-    return {'deleted': count}
+    logger.info("Configured quarterly scan output archival at 3:00 AM")
+    return task

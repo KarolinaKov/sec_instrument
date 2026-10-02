@@ -51,6 +51,9 @@ SCAN_TOOLS = {
 NOTIFICATION_EMAIL = getattr(settings, 'SCAN_NOTIFICATION_EMAIL', 'admin@example.com')
 
 
+
+
+
 def sanitize_path_component(value):
     """
     Make a string safe to use as a single filesystem path segment, on both
@@ -634,3 +637,60 @@ Statistiky za {(today - timedelta(days=1)).strftime('%d.%m.%Y')}:
         logger.error(f"Failed to send daily report: {e}")
     
     return {'total': total_scans, 'failed': failed_scans, 'vulnerabilities': total_vulns}
+
+@shared_task
+def cleanup_old_scans(days=90):
+    from backend.models import LogScan
+    from datetime import timedelta
+    import shutil
+    from pathlib import Path
+    from zipfile import ZIP_DEFLATED, ZipFile
+
+    logger.info(f"Starting archival of scans older than {days} days...")
+
+    cutoff_date = timezone.now() - timedelta(days=days)
+    old_scans = list(
+        LogScan.objects.filter(timestamp_start__lt=cutoff_date).only(
+            'id', 'timestamp_start', 'path_to_file'
+        )
+    )
+    archive_root = Path(settings.BASE_DIR) / 'scan_archives'
+    archive_root.mkdir(parents=True, exist_ok=True)
+    archived_scan_ids = []
+    archived_directories = set()
+
+    for scan in old_scans:
+        if not scan.path_to_file:
+            archived_scan_ids.append(scan.id)
+            continue
+
+        file_path = Path(scan.path_to_file)
+        log_dir = file_path.parent
+        if not log_dir.exists():
+            archived_scan_ids.append(scan.id)
+            continue
+        if log_dir in archived_directories:
+            archived_scan_ids.append(scan.id)
+            continue
+
+        quarter = ((scan.timestamp_start.month - 1) // 3) + 1
+        archive_path = archive_root / f'{scan.timestamp_start.year}-Q{quarter}.zip'
+        try:
+            with ZipFile(archive_path, mode='a', compression=ZIP_DEFLATED) as archive:
+                existing_names = set(archive.namelist())
+                for output_file in log_dir.rglob('*'):
+                    if output_file.is_file():
+                        archive_name = output_file.relative_to(settings.BASE_DIR).as_posix()
+                        if archive_name not in existing_names:
+                            archive.write(output_file, archive_name)
+            shutil.rmtree(log_dir)
+            archived_directories.add(log_dir)
+            archived_scan_ids.append(scan.id)
+            logger.info(f"Archived scan outputs from {log_dir} to {archive_path}")
+        except Exception as error:
+            logger.error(f"Error archiving scan directory {log_dir}: {error}")
+
+    deleted = LogScan.objects.filter(id__in=archived_scan_ids).delete()[0]
+
+    logger.info(f"Archived outputs and deleted {deleted} old scan logs")
+    return {'deleted': deleted, 'archives': str(archive_root)}
