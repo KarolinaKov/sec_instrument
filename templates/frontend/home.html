@@ -59,6 +59,17 @@
         .occupancy-orange { background-color: #ffc078; }
         .occupancy-red { background-color: #f28b82; }
         .calendar-count { display: block; font-size: 0.8rem; margin-top: 8px; }
+        .retrying-calendar-test {
+            display: inline-block;
+            padding: 2px 5px;
+            border-radius: 3px;
+            background-color: #fff3cd;
+            color: #664d03;
+            font-weight: 600;
+        }
+        .retrying-calendar-row td {
+            background-color: #fff3cd;
+        }
     </style>
 </head>
 <body data-is-senior="{{ is_senior|yesno:'true,false' }}">
@@ -106,15 +117,15 @@
                             <input type="number" class="form-control" id="prefix" name="prefix"
                                    placeholder="24" min="0" max="32" required>
                         </div>
-                        <div class="col-md-3">
-                            <label for="nickname" class="form-label">Nickname</label>
-                            <input type="text" class="form-control" id="nickname" name="nickname"
-                                   placeholder="Leave blank to auto-generate">
-                        </div>
                         <div class="col-md-3" id="hostnameGroup">
                             <label for="hostname" class="form-label">DNS Hostname</label>
                             <input type="text" class="form-control" id="hostname" name="hostname"
                                    placeholder="example.com">
+                        </div>
+                        <div class="col-md-3">
+                            <label for="nickname" class="form-label">Nickname</label>
+                            <input type="text" class="form-control" id="nickname" name="nickname"
+                                   placeholder="Leave blank to auto-generate">
                         </div>
                         <div class="col-md-3">
                             <label for="cron" class="form-label">Schedule (Cron) <span class="text-danger">*</span></label>
@@ -262,11 +273,15 @@
         });
 
         document.addEventListener('DOMContentLoaded', function() {
-            loadTests();
-            loadMonthlySchedule();
+            refreshDashboard();
             document.getElementById('previousMonth').addEventListener('click', () => changeScheduleMonth(-1));
             document.getElementById('nextMonth').addEventListener('click', () => changeScheduleMonth(1));
         });
+
+        function refreshDashboard() {
+            loadTests();
+            loadMonthlySchedule();
+        }
 
         function changeScheduleMonth(offset) {
             const selectedMonth = new Date(scheduleYear, scheduleMonth - 1 + offset, 1);
@@ -338,10 +353,13 @@
                 <table class="table table-sm">
                     <thead><tr><th>Hour</th><th>Scheduled</th><th>Tests</th></tr></thead>
                     <tbody>${day.hours.map(hour => `
-                        <tr>
+                        <tr class="${hour.tests.some(test => test.retrying) ? 'retrying-calendar-row' : ''}">
                             <td>${String(hour.hour).padStart(2, '0')}:00</td>
                             <td>${hour.count}</td>
-                            <td>${hour.tests.join('<br>')}</td>
+                            <td>${hour.tests.map(test => `
+                                <span class="${test.retrying ? 'retrying-calendar-test' : ''}">
+                                    ${test.label}
+                                </span>`).join('<br>')}</td>
                         </tr>`).join('')}
                     </tbody>
                 </table>` : '<p class="mb-0">No schedules for this day.</p>';
@@ -421,7 +439,7 @@
                     alert('Test created! Scan is running in the background.');
                     this.reset();
                     updateInputMode();
-                    loadTests();
+                    refreshDashboard();
                 } else {
                     const error = await response.json();
                     alert('Error: ' + JSON.stringify(error));
@@ -502,7 +520,7 @@
             window.testsById = Object.fromEntries(tests.map(test => [test.id, test]));
 
             tbody.innerHTML = tests.map(test => `
-                <tr>
+                <tr class="${getTestStatusClass(test.status)}">
                     <td>${test.id}</td>
                     <td>${test.nickname}</td>
                     <td>${test.ip_address}/${test.prefix}</td>
@@ -542,6 +560,12 @@
             `).join('');
         }
 
+        function getTestStatusClass(status) {
+            if (Number(status) === 3) return 'table-secondary';
+            if (Number(status) === 2) return 'table-warning';
+            return '';
+        }
+
         function formatDate(dateString) {
             const date = new Date(dateString);
             return date.toLocaleString();
@@ -576,7 +600,7 @@
                     throw new Error(JSON.stringify(error));
                 }
                 bootstrap.Modal.getInstance(document.getElementById('editTestModal')).hide();
-                loadTests();
+                refreshDashboard();
             } catch (error) {
                 alert('Unable to edit test: ' + error.message);
             }
@@ -597,7 +621,7 @@
                     const error = await response.json().catch(() => ({}));
                     throw new Error(error.error || `HTTP ${response.status}`);
                 }
-                loadTests();
+                refreshDashboard();
             } catch (error) {
                 alert('Unable to update threat alerts: ' + error.message);
                 loadTests();
@@ -619,10 +643,10 @@
                     const error = await response.json().catch(() => ({}));
                     throw new Error(error.error || `HTTP ${response.status}`);
                 }
-                loadTests();
+                refreshDashboard();
             } catch (error) {
                 alert('Unable to update scan schedule: ' + error.message);
-                loadTests();
+                refreshDashboard();
             }
         }
 
@@ -673,7 +697,7 @@
 
                 if (response.ok || response.status === 204) {
                     alert('Test deleted successfully');
-                    loadTests();
+                    refreshDashboard();
                 } else {
                     alert('Error deleting test');
                 }
@@ -682,7 +706,7 @@
             }
         }
 
-        setInterval(loadTests, 30000);
+        setInterval(refreshDashboard, 30000);
     </script>
 </body>
 </html>
