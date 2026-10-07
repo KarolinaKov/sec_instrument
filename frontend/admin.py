@@ -13,6 +13,7 @@ class TestIPAdmin(admin.ModelAdmin):
 
 @admin.register(Test)
 class TestAdmin(admin.ModelAdmin):
+    raw_id_fields = ['ip_current']
     list_display = [
         'id', 'nickname', 'ip_address', 'prefix', 'hostname', 'cron', 'cron_is_active',
         'last_test', 'next_scheduled', 'when_added', 'created_by',
@@ -21,7 +22,7 @@ class TestAdmin(admin.ModelAdmin):
     search_fields = ['nickname', 'ip_address', 'hostname', 'created_by__username']
     readonly_fields = [
         'id', 'when_added', 'last_test', 'next_scheduled',
-        'scheduled_task_id', 'ip_current',
+        'scheduled_task_id',
     ]
 
     fieldsets = (

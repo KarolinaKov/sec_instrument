@@ -4,7 +4,9 @@ import subprocess
 import ipaddress
 from .models import TestIP, Test
 from .dns_utils import resolve_hostname_ips
+import logging
 
+logger = logging.getLogger('backend')
 
 @shared_task(bind=True)
 def scan_network_task(self, test_id, ip, prefix):
@@ -14,7 +16,7 @@ def scan_network_task(self, test_id, ip, prefix):
         network = ipaddress.ip_network(f"{ip}/{prefix}", strict=False)
         live_ips = []
 
-        print(f"Scanning network {ip}/{prefix}...")
+        logger.info(f"Starting network scan for test {test_id} on {ip}/{prefix}")
 
         for host_ip in network.hosts():
             result = subprocess.run(
@@ -32,24 +34,23 @@ def scan_network_task(self, test_id, ip, prefix):
                 if resolved_ip not in live_ips:
                     live_ips.append(resolved_ip)
 
-        print(f"Scan complete. Found {len(live_ips)} live IPs")
+        logger.info(f"Scan complete for test {test_id}. Found {len(live_ips)} live IPs.")
 
         with transaction.atomic():
             locked_test = Test.objects.select_for_update().get(id=test_id)
             test_ip = TestIP.objects.create(ip_address=live_ips)
             locked_test.ip_current = test_ip
             locked_test.save(update_fields=['ip_current'])
-
-        print(f"Successfully scanned {ip}/{prefix}: Found {len(live_ips)} live IPs")
+        logger.info(f"Successfully scanned {ip}/{prefix}: Found {len(live_ips)} live IPs")
 
         try:
             from backend.scheduler import schedule_next_vulnerability_scan
-            schedule_next_vulnerability_scan(locked_test)
+            schedule_next_vulnerability_scan(test)
         except Exception as e:
-            print(f"Error scheduling vulnerability scan for test {test_id}: {e}")
+            logger.error(f"Error scheduling vulnerability scan for test {test_id}: {e}")
 
         return {'success': True, 'count': len(live_ips)}
 
     except Exception as e:
-        print(f"Scan error: {e}")
+        logger.error(f"Scan error: {e}")
         return {'success': False, 'error': str(e)}

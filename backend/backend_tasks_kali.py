@@ -12,7 +12,7 @@ import re
 import logging
 
 
-logger = logging.getLogger('celery')
+logger = logging.getLogger('backend')
 
 
 SCAN_TOOLS = {
@@ -51,6 +51,9 @@ SCAN_TOOLS = {
 NOTIFICATION_EMAIL = getattr(settings, 'SCAN_NOTIFICATION_EMAIL', 'admin@example.com')
 
 
+
+
+
 def sanitize_path_component(value):
     """
     Make a string safe to use as a single filesystem path segment, on both
@@ -70,8 +73,8 @@ def vulnerability_scan_task(self, test_id):
     """
     from frontend.models import Test, TestIP
     from frontend.dns_utils import resolve_hostname_ips
-    from backend.models import LogScan, LogScanRetry
-    from backend.scheduler import disable_scan_schedule, enable_scan_schedule
+    from backend.models import LogScan
+    from backend.scheduler import schedule_next_vulnerability_scan, schedule_retry
     
     logger.info(f"Starting vulnerability scan for test_id: {test_id}")
     
@@ -89,9 +92,9 @@ def vulnerability_scan_task(self, test_id):
         
         network = ipaddress.ip_network(f"{test.ip_address}/{test.prefix}", strict=False)
         live_ips = []
-        
+
         logger.info(f"Discovering live IPs in {test.ip_address}/{test.prefix}...")
-        
+
         for host_ip in network.hosts():
             result = subprocess.run(
                 ['ping', '-c', '1', '-W', '1', str(host_ip)],
@@ -111,23 +114,26 @@ def vulnerability_scan_task(self, test_id):
         log_scan.save()
         
         logger.info(f"Discovery complete. Found {len(live_ips)} live IPs")
-        
-        
-        ip_count_changed = False
-        if test.ip_current and test.ip_current.ip_address:
+
+        if not test.ip_current:
+            with transaction.atomic():
+                locked_test = Test.objects.select_for_update().get(id=test.id)
+                test_ip = TestIP.objects.create(ip_address=live_ips)
+                locked_test.ip_current = test_ip
+                locked_test.last_test = timezone.now()
+                locked_test.save(update_fields=['ip_current', 'last_test'])
+        else:
             previous_ips = set(test.ip_current.ip_address)
             current_ips = set(live_ips)
-            
             if previous_ips != current_ips:
-                ip_count_changed = True
-                logger.warning(f"IP change detected: {len(previous_ips)} -> {len(current_ips)}")
+                tested_ip = TestIP.objects.create(ip_address=live_ips)
+                logger.warning(f"IP change detected for test {test.id}")
                 
-                
-                send_ip_change_notification(test, log_scan, len(live_ips))
-                
-                schedule_retry(log_scan, reason=1, hours_delay=8)
-        
-          
+                send_ip_change_notification(test, log_scan, tested_ip)
+            Test.objects.filter(id=test.id).update(
+            last_test = timezone.now())
+            test.last_test = timezone.now()
+            
         succeeded = 0
         unsucceeded = 0
         problematic_ips = []
@@ -192,7 +198,8 @@ def vulnerability_scan_task(self, test_id):
         if unsucceeded > 0:
             previous_logs = LogScan.objects.filter(
                 test=test,
-                timestamp_start__lt=log_scan.timestamp_start
+                timestamp_start__lt=log_scan.timestamp_start,
+                status__in=['completed', 'failed'],
             ).order_by('-timestamp_start')
 
             consecutive_count = 0
@@ -201,48 +208,26 @@ def vulnerability_scan_task(self, test_id):
                     consecutive_count += 1
                 else:
                     break
-            
+
             log_scan.consecutive_failures = consecutive_count + 1
-            
-            if consecutive_count >= 2:
-                
-                logger.error(f"Test {test.id} failed 3 times consecutively. Disabling schedule.")
-                log_scan.status = 'failed'
-
-                
-                disable_scan_schedule(test)
-
-                schedule_retry(log_scan, reason=3, hours_delay=8)
-
-                send_scan_failure_notification(test, log_scan, problematic_ips)
-            else:
-                logger.warning(f"Test {test.id} had partial failure. Scheduling immediate retry.")
-                log_scan.status = 'completed'
-                schedule_retry(log_scan, reason=2, hours_delay=0, high_priority=True)
+            log_scan.status = 'failed' if consecutive_count >= 2 else 'completed'
         else:
             log_scan.status = 'completed'
             log_scan.consecutive_failures = 0
 
-            if not test.cron_is_active:
-                logger.info(f"Test {test.id} succeeded after failures. Re-enabling schedule.")
-            enable_scan_schedule(test)
-        
         log_scan.save()
-
-        from django.db import transaction
-        with transaction.atomic():
-            locked_test = Test.objects.select_for_update().get(id=test.id)
-            current_ips = set(live_ips)
-            previous_ips = set(
-                locked_test.ip_current.ip_address
-                if locked_test.ip_current else []
-            )
-
-            if locked_test.ip_current is None or current_ips != previous_ips:
-                locked_test.ip_current = TestIP.objects.create(ip_address=live_ips)
-
-            locked_test.last_test = timezone.now()
-            locked_test.save(update_fields=['ip_current', 'last_test'])
+        test.refresh_from_db(fields=['cron_is_active'])
+        if test.cron_is_active:
+            if unsucceeded > 0:
+                if consecutive_count >= 2:
+                    logger.error(f"Test {test.id} failed 3 times consecutively. Aplying 8-hour delay.")
+                    schedule_retry(test, log_scan, reason=3, hours_delay=8)
+                    send_scan_failure_notification(test, log_scan, problematic_ips)
+                else:
+                    logger.warning(f"Test {test.id} had partial failure. Scheduling immediate retry.")
+                    schedule_retry(test, log_scan, reason=2, hours_delay=0, high_priority=True)
+            else:
+                schedule_next_vulnerability_scan(test)
         
         alert_vulnerabilities = all_vulnerabilities
         if test.new_vulnerability_alerts_enabled:
@@ -324,7 +309,7 @@ def perform_multi_tool_scan(ip, output_dir, log_scan_id):
     
     if len(results['errors']) == len([t for t in SCAN_TOOLS.values() if t['enabled']]):
         results['success'] = False
-    
+
     return results
 
 
@@ -535,44 +520,12 @@ def parse_openvas_output(output_file):
     return vulnerabilities
 
 
-def schedule_retry(log_scan, reason, hours_delay=0, high_priority=False):
-    """
-    Schedule a retry for a scan
-    """
-    from backend.models import LogScanRetry
-    from datetime import timedelta
-    
-    scheduled_time = timezone.now() + timedelta(hours=hours_delay)
-    
-    retry = LogScanRetry.objects.create(
-        log_scan=log_scan,
-        reason_to_retry=reason,
-        scheduled_for=scheduled_time
-    )
-    
-    if hours_delay == 0:
-        task = vulnerability_scan_task.apply_async(
-            args=[log_scan.test.id],
-            priority=9 if high_priority else 5
-        )
-    else:
-        task = vulnerability_scan_task.apply_async(
-            args=[log_scan.test.id],
-            eta=scheduled_time
-        )
-    
-    retry.celery_task_id = task.id
-    retry.save()
-    
-    logger.info(f"Scheduled retry {retry.id} for {scheduled_time} (reason: {reason})")
-
-
-def send_ip_change_notification(test, log_scan, live_ips_count):
+def send_ip_change_notification(test, log_scan, live_ips):
     """
     Send email notification when IP count changes
     """
     subject = 'Změna IP rozsahu'
-    message = f"""Pro sken {test.nickname} s id {test.id} byl nalezen jiný počet živých IP adres {live_ips_count}, id k logu tohoto skenu je {log_scan.id}"""
+    message = f"""Pro sken {test.nickname} s id {test.id} byl nalezena změna živých IP adres. ID adres: {live_ips.id}. ID k logu tohoto skenu je {log_scan.id}"""
     
     try:
         send_mail(
@@ -684,3 +637,60 @@ Statistiky za {(today - timedelta(days=1)).strftime('%d.%m.%Y')}:
         logger.error(f"Failed to send daily report: {e}")
     
     return {'total': total_scans, 'failed': failed_scans, 'vulnerabilities': total_vulns}
+
+@shared_task
+def cleanup_old_scans(days=90):
+    from backend.models import LogScan
+    from datetime import timedelta
+    import shutil
+    from pathlib import Path
+    from zipfile import ZIP_DEFLATED, ZipFile
+
+    logger.info(f"Starting archival of scans older than {days} days...")
+
+    cutoff_date = timezone.now() - timedelta(days=days)
+    old_scans = list(
+        LogScan.objects.filter(timestamp_start__lt=cutoff_date).only(
+            'id', 'timestamp_start', 'path_to_file'
+        )
+    )
+    archive_root = Path(settings.BASE_DIR) / 'scan_archives'
+    archive_root.mkdir(parents=True, exist_ok=True)
+    archived_scan_ids = []
+    archived_directories = set()
+
+    for scan in old_scans:
+        if not scan.path_to_file:
+            archived_scan_ids.append(scan.id)
+            continue
+
+        file_path = Path(scan.path_to_file)
+        log_dir = file_path.parent
+        if not log_dir.exists():
+            archived_scan_ids.append(scan.id)
+            continue
+        if log_dir in archived_directories:
+            archived_scan_ids.append(scan.id)
+            continue
+
+        quarter = ((scan.timestamp_start.month - 1) // 3) + 1
+        archive_path = archive_root / f'{scan.timestamp_start.year}-Q{quarter}.zip'
+        try:
+            with ZipFile(archive_path, mode='a', compression=ZIP_DEFLATED) as archive:
+                existing_names = set(archive.namelist())
+                for output_file in log_dir.rglob('*'):
+                    if output_file.is_file():
+                        archive_name = output_file.relative_to(settings.BASE_DIR).as_posix()
+                        if archive_name not in existing_names:
+                            archive.write(output_file, archive_name)
+            shutil.rmtree(log_dir)
+            archived_directories.add(log_dir)
+            archived_scan_ids.append(scan.id)
+            logger.info(f"Archived scan outputs from {log_dir} to {archive_path}")
+        except Exception as error:
+            logger.error(f"Error archiving scan directory {log_dir}: {error}")
+
+    deleted = LogScan.objects.filter(id__in=archived_scan_ids).delete()[0]
+
+    logger.info(f"Archived outputs and deleted {deleted} old scan logs")
+    return {'deleted': deleted, 'archives': str(archive_root)}

@@ -4,6 +4,7 @@ from frontend.models import Test
 from backend.scheduler import (
     disable_scan_schedule,
     schedule_next_vulnerability_scan,
+    remove_periodic_scan,
     revoke_scheduled_task,
 )
 import logging
@@ -50,6 +51,7 @@ def unschedule_scan_on_test_delete(sender, instance, **kwargs):
     logger.info(f"Test {instance.id} deleted, revoking any pending scheduled scan...")
     try:
         revoke_scheduled_task(instance)
+        remove_periodic_scan(instance)
         logger.info(f"Successfully revoked pending scan for test {instance.id}")
     except Exception as e:
         logger.error(f"Error revoking pending scan for test {instance.id}: {e}", exc_info=True)

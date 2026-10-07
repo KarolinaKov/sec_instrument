@@ -12,11 +12,11 @@ class TestSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Test
-        fields = ['id', 'ip_address', 'prefix', 'hostname', 'nickname', 'cron', 'last_test',
+        fields = ['id', 'ip_address', 'prefix', 'hostname', 'nickname', 'cron', 'status', 'last_test',
                   'next_scheduled', 'when_added', 'cron_is_active',
                   'new_vulnerability_alerts_enabled', 'new_vulnerability_alerts_since',
                   'new_vulnerability_alerts_log_scan_id']
-        read_only_fields = ['id', 'when_added', 'last_test', 'next_scheduled']
+        read_only_fields = ['id', 'status', 'when_added', 'last_test', 'next_scheduled']
     
     def validate(self, data):
         if self.instance and self.partial and not any(

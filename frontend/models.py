@@ -16,6 +16,12 @@ class TestIP(models.Model):
 
 
 class Test(models.Model):
+    STATUS_CHOICES = [
+        (1, 'Normal'),
+        (2, 'Retrying'),
+        (3, 'Deactivated'),
+    ]
+
     id = models.AutoField(primary_key=True)
     ip_address = models.GenericIPAddressField()
     prefix = models.IntegerField()
@@ -23,6 +29,7 @@ class Test(models.Model):
     nickname = models.CharField(max_length=255)
     cron = models.CharField(max_length=100)
     cron_is_active = models.BooleanField(default=True)
+    status = models.PositiveSmallIntegerField(choices=STATUS_CHOICES, default=1)
     new_vulnerability_alerts_enabled = models.BooleanField(default=False)
     new_vulnerability_alerts_since = models.DateTimeField(null=True, blank=True)
     new_vulnerability_alerts_log_scan_id = models.IntegerField(null=True, blank=True)

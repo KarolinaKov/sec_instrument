@@ -167,6 +167,7 @@ CELERY_ACCEPT_CONTENT = ['application/json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = 'Europe/Prague'
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1
 
 # MAILHOG SMTP CONFIG
 # To start MailHog for testing: mailhog
