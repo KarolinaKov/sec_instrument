@@ -1,5 +1,6 @@
 from celery import shared_task
 from django.utils import timezone
+from django.db import transaction
 from django.core.mail import send_mail
 from django.conf import settings
 from datetime import timedelta, datetime
@@ -14,17 +15,21 @@ import logging
 
 logger = logging.getLogger('backend')
 
-
 SCAN_TOOLS = {
     'nmap': {
         'enabled': True,
-        'timeout': 300,
-        'command': ['nmap', '-sV', '-sC', '--script=vuln', '{ip}', '-oN', '{output}']
+        'timeout': 900,
+        'command': [
+            'nmap', '-sV', '-sC', '--script=vuln',
+            '--host-timeout', '840s', '--script-timeout', '120s',
+            '{ip}', '-oN', '{output}'
+        ]
     },
     'nikto': {
         'enabled': True,
-        'timeout': 600,
-        'command': ['nikto', '-h', '{ip}', '-output', '{output}', '-Format', 'txt']
+        'timeout': 900,
+        'command': ['nikto', '-h', '{ip}', '-maxtime', '840s',
+                    '-output', '{output}', '-Format', 'txt']
     },
     'openvas': {
         'enabled': False,
@@ -44,7 +49,6 @@ SCAN_TOOLS = {
     'sslyze': {
         'enabled': True,
         'timeout': 120,
-        # exits non-zero when a server is non-compliant
         'command': [
             'sslyze',
             '--sslv2', '--sslv3', '--tlsv1', '--tlsv1_1', '--tlsv1_2', '--tlsv1_3',
@@ -97,6 +101,14 @@ def sanitize_path_component(value):
     value = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', value)
     value = value.strip(' .')
     return value or 'unnamed'
+
+
+def _resolve_nikto_output(output_file):
+
+    doubled = Path(str(output_file) + '.txt')
+    if doubled.exists():
+        return doubled
+    return output_file
 
 
 @shared_task(bind=True)
@@ -214,11 +226,10 @@ def vulnerability_scan_task(self, test_id):
                     'status': 'failed',
                     'error': scan_result.get('error', 'Unknown error'),
                     'tool_results': scan_result.get('tool_results', {}),
-                    'vulnerabilities': scan_result.get('vulnerabilities', [])
+                    'vulnerabilities': scan_result.get('vulnerabilities', []),
+                    'services': scan_result.get('services', [])
                 })
 
-        # Keep the overall list worst-first so summaries/alerts lead with the
-        # most severe findings.
         all_vulnerabilities = _sort_findings(all_vulnerabilities)
 
         output_file = output_dir / f'comprehensive_scan_log{log_scan.id}.json'
@@ -233,6 +244,7 @@ def vulnerability_scan_task(self, test_id):
         log_scan.path_to_file = str(output_file)
         log_scan.timestamp_end = timezone.now()
 
+        consecutive_count = 0
         if unsucceeded > 0:
             previous_logs = LogScan.objects.filter(
                 test=test,
@@ -240,7 +252,6 @@ def vulnerability_scan_task(self, test_id):
                 status__in=['completed', 'failed'],
             ).order_by('-timestamp_start')
 
-            consecutive_count = 0
             for prev_log in previous_logs:
                 if prev_log.unsucceeded > 0:
                     consecutive_count += 1
@@ -258,7 +269,7 @@ def vulnerability_scan_task(self, test_id):
         if test.cron_is_active:
             if unsucceeded > 0:
                 if consecutive_count >= 2:
-                    logger.error(f"Test {test.id} failed 3 times consecutively. Aplying 8-hour delay.")
+                    logger.error(f"Test {test.id} failed 3 times consecutively. Applying 8-hour delay.")
                     schedule_retry(test, log_scan, reason=3, hours_delay=8)
                     send_scan_failure_notification(test, log_scan, problematic_ips)
                 else:
@@ -347,7 +358,15 @@ def perform_multi_tool_scan(ip, output_dir, log_scan_id):
 
     results['vulnerabilities'] = _sort_findings(results['vulnerabilities'])
 
-    if len(results['errors']) == len([t for t in SCAN_TOOLS.values() if t['enabled']]):
+    enabled_tools = [name for name, cfg in SCAN_TOOLS.items() if cfg['enabled']]
+    all_failed = len(results['errors']) == len(enabled_tools)
+
+    nmap_failed = (
+        SCAN_TOOLS.get('nmap', {}).get('enabled')
+        and not results['tool_results'].get('nmap', {}).get('success', False)
+    )
+
+    if all_failed or nmap_failed:
         results['success'] = False
 
     return results
@@ -360,12 +379,13 @@ def run_scan_tool(tool_name, config, ip, output_dir, log_scan_id):
     import time
     start_time = time.time()
 
+    output_suffix = '.json' if tool_name == 'sslyze' else '.txt'
+    output_file = output_dir / f'{tool_name}_scan_log{log_scan_id}{output_suffix}'
+
     try:
         if tool_name == 'openvas': #UNUSED
             return run_openvas_scan(ip, output_dir, config['timeout'], log_scan_id)
 
-        output_suffix = '.json' if tool_name == 'sslyze' else '.txt'
-        output_file = output_dir / f'{tool_name}_scan_log{log_scan_id}{output_suffix}'
         command = [
             part.format(ip=ip, output=str(output_file))
             for part in config['command']
@@ -380,25 +400,22 @@ def run_scan_tool(tool_name, config, ip, output_dir, log_scan_id):
 
         execution_time = time.time() - start_time
 
-        # nikto and sslyze both return a non-zero exit code on good
-        # runs (nikto when it finds issues, sslyze when the target is not
-        # compliant with the Mozilla TLS config), so for these two success is
-        # defined by the output file being produced with content.
+        real_output = _resolve_nikto_output(output_file) if tool_name == 'nikto' else output_file
+
         if tool_name in ('nikto', 'sslyze'):
-            tool_succeeded = output_file.exists() and output_file.stat().st_size > 0
+            tool_succeeded = real_output.exists() and real_output.stat().st_size > 0
         else:
             tool_succeeded = result.returncode == 0
 
-        vulnerabilities = parse_tool_output(tool_name, output_file)
+        vulnerabilities = parse_tool_output(tool_name, real_output)
 
         if tool_succeeded:
-
             return {
                 'success': True,
-                'output_file': str(output_file),
+                'output_file': str(real_output),
                 'execution_time': execution_time,
                 'vulnerabilities': vulnerabilities,
-                'services': parse_services(tool_name, output_file) if tool_name == 'nmap' else []
+                'services': parse_services(tool_name, real_output) if tool_name == 'nmap' else []
             }
         else:
             error_detail = f"Exit code {result.returncode}"
@@ -408,16 +425,33 @@ def run_scan_tool(tool_name, config, ip, output_dir, log_scan_id):
                 'success': False,
                 'error': error_detail,
                 'execution_time': execution_time,
-                'output_file': str(output_file),
-                'vulnerabilities': vulnerabilities
+                'output_file': str(real_output),
+                'vulnerabilities': vulnerabilities,
+                'services': parse_services(tool_name, real_output) if tool_name == 'nmap' else []
             }
 
     except subprocess.TimeoutExpired:
-        return {'success': False, 'error': f'Timeout after {config["timeout"]}s'}
+        execution_time = time.time() - start_time
+        real_output = _resolve_nikto_output(output_file) if tool_name == 'nikto' else output_file
+        partial = parse_tool_output(tool_name, real_output)
+        logger.warning(
+            f"{tool_name} on {ip} timed out after {config['timeout']}s; "
+            f"kept {len(partial)} partial finding(s)"
+        )
+        return {
+            'success': False,
+            'error': f'Timeout after {config["timeout"]}s',
+            'execution_time': execution_time,
+            'output_file': str(real_output),
+            'vulnerabilities': partial,
+            'services': parse_services(tool_name, real_output) if tool_name == 'nmap' else []
+        }
     except FileNotFoundError:
-        return {'success': False, 'error': f'{tool_name} not installed'}
+        return {'success': False, 'error': f'{tool_name} not installed',
+                'execution_time': time.time() - start_time}
     except Exception as e:
-        return {'success': False, 'error': str(e)}
+        return {'success': False, 'error': str(e),
+                'execution_time': time.time() - start_time}
 
 
 def run_openvas_scan(ip, output_dir, timeout, log_scan_id): #UNUSED
@@ -666,7 +700,19 @@ def _parse_sslyze_output(output_file):
 
         scan = server.get('scan_result') or {}
         if not scan:
-            status = server.get('connectivity_status') or server.get('scan_status') or 'UNKNOWN'
+            trace = (server.get('connectivity_error_trace') or '')
+            scan_status = server.get('scan_status') or ''
+            conn_status = server.get('connectivity_status') or ''
+            refused = (
+                'ServerRejectedConnection' in trace
+                or 'ConnectionToServerFailed' in trace
+                or 'ServerTlsConfigurationNotSupported' in trace
+                or scan_status == 'ERROR_NO_CONNECTIVITY'
+            )
+            if refused:
+                logger.debug(f"sslyze: no TLS service on {where}, skipping")
+                continue
+            status = conn_status or scan_status or 'UNKNOWN'
             add(f"[sslyze][UNKNOWN] TLS scan did not complete ({status}) — {where}")
             continue
 
