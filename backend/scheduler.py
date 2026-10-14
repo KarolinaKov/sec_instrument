@@ -4,7 +4,7 @@ from django.utils import timezone
 from frontend.models import Test
 import logging
 
-logger = logging.getLogger('celery')
+logger = logging.getLogger('backend')
 
 
 def _periodic_task_name(test):
