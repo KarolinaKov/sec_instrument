@@ -239,13 +239,15 @@ def vulnerability_scan_task(self, test_id):
                 ).first()
                 if previous_scan:
                     previous_vulnerabilities = previous_scan.vulners
+                else:
+                    logger.warning(f"Previous LogScan ID {test.new_vulnerability_alerts_log_scan_id} not found for test {test.id}. Setting to {log_scan.id}.")
+                    test.new_vulnerability_alerts_log_scan_id = log_scan.id
+                    test.new_vulnerability_alerts_since = timezone.now()
+                    test.save(update_fields=['new_vulnerability_alerts_log_scan_id', 'new_vulnerability_alerts_since'])
 
             alert_vulnerabilities = sorted(
                 set(all_vulnerabilities) - set(previous_vulnerabilities)
-            ) if previous_vulnerabilities or test.new_vulnerability_alerts_log_scan_id else []
-
-            test.new_vulnerability_alerts_log_scan_id = log_scan.id
-            test.save(update_fields=['new_vulnerability_alerts_log_scan_id'])
+            ) if previous_vulnerabilities else all_vulnerabilities
 
         if alert_vulnerabilities:
             send_vulnerability_notification(test, log_scan, alert_vulnerabilities, str(output_file))
