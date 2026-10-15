@@ -20,7 +20,7 @@ SCAN_TOOLS = {
     'nmap': {
         'enabled': True,
         'core': True,
-        'timeout': 300,
+        'timeout': 600,
         'command': ['nmap', '-sV', '-sC', '--script=vuln', '{ip}', '-oN', '{output}'],
     },
     'nikto': {
