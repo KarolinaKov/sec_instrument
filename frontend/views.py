@@ -17,7 +17,6 @@ from datetime import datetime, date, time, timedelta
 from pathlib import Path
 from croniter import croniter
 import calendar
-import csv
 import io
 import zipfile
 
@@ -263,103 +262,6 @@ class TestViewSet(viewsets.ModelViewSet):
             'days': days
         })
 
-
-    @action(detail=False, methods=['get'])
-    def download_data(self, request):
-        """
-        Download test data within a date range
-        Query params: from_date, until_date
-        """
-        from_date = request.query_params.get('from_date')
-        until_date = request.query_params.get('until_date')
-        
-        if not from_date or not until_date:
-            return Response(
-                {'error': 'Both from_date and until_date are required'}, 
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        try:
-            from_date = datetime.fromisoformat(from_date.replace('Z', '+00:00'))
-            until_date = datetime.fromisoformat(until_date.replace('Z', '+00:00'))
-        except ValueError:
-            return Response(
-                {'error': 'Invalid date format. Use ISO format (YYYY-MM-DDTHH:MM:SS)'}, 
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        tests = self.get_queryset().filter(
-            when_added__gte=from_date,
-            when_added__lte=until_date
-        )
-        
-        output = io.StringIO()
-        writer = csv.writer(output)
-        
-        writer.writerow([
-            'ID', 'IP Address', 'Prefix', 'Nickname', 'Cron',
-            'Last Test', 'Next Scheduled', 'When Added', 'Status', 'Live IPs Count'
-        ])
-        
-        for test in tests:
-            live_ip_count = len(test.ip_current.ip_address) if test.ip_current else 0
-            writer.writerow([
-                test.id,
-                test.ip_address,
-                test.prefix,
-                test.nickname,
-                test.cron,
-                test.last_test,
-                test.next_scheduled,
-                test.when_added,
-                test.status,
-                live_ip_count
-            ])
-        
-        output.seek(0)
-        response = HttpResponse(output.getvalue(), content_type='text/csv')
-        response['Content-Disposition'] = f'attachment; filename="tests_{from_date.date()}_to_{until_date.date()}.csv"'
-        
-        return response
-    
-    @action(detail=True, methods=['get'])
-    def download_single(self, request, pk=None):
-        """
-        Download a single test's data as CSV including live IPs
-        """
-        test = self.get_object()
-        
-        output = io.StringIO()
-        writer = csv.writer(output)
-        
-        writer.writerow([
-            'ID', 'IP Address', 'Prefix', 'Nickname', 'Cron',
-            'Last Test', 'Next Scheduled', 'When Added', 'Status'
-        ])
-        
-        writer.writerow([
-            test.id,
-            test.ip_address,
-            test.prefix,
-            test.nickname,
-            test.cron,
-            test.last_test,
-            test.next_scheduled,
-            test.when_added,
-            test.status
-        ])
-        
-        if test.ip_current and test.ip_current.ip_address:
-            writer.writerow([])
-            writer.writerow(['Live IPs Found:'])
-            for ip in test.ip_current.ip_address:
-                writer.writerow([ip])
-
-        output.seek(0)
-        response = HttpResponse(output.getvalue(), content_type='text/csv')
-        response['Content-Disposition'] = f'attachment; filename="test_{test.id}_{test.nickname}.csv"'
-
-        return response
 
     @action(detail=False, methods=['get'])
     def download_scan_outputs(self, request):
